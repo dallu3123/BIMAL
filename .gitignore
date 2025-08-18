@@ -1,0 +1,10 @@
+bin
+logs
+wandb
+outputs
+data
+data_local
+.vscode
+_wandb
+
+**/.DS_Store

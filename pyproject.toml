@@ -1,0 +1,137 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "piper-bimanual"
+version = "0.1.0"
+description = "Bimanual Manipulation Learning with Piper / ALOHA (RL & IL)"
+readme = "README.md"
+requires-python = ">=3.8,<3.9"
+license = { file = "LICENSE" }
+keywords = ["bimanual", "manipulation", "robotics", "imitation-learning", "reinforcement-learning", "aloha", "piper"]
+authors = [
+  { name = "Jinsung Kim" }
+]
+
+# pip install . 시 설치될 런타임 의존성 (진성님이 주신 리스트 기반)
+dependencies = [
+  "torch",
+  "torchvision",
+  "pyquaternion",
+  "pyyaml",
+  "rospkg",
+  "pexpect",
+  "mujoco==2.3.7",
+  "dm_control==1.0.14",
+  "opencv-python",
+  "matplotlib",
+  "einops",
+  "packaging",
+  "h5py",
+  "ipython",
+]
+
+[project.optional-dependencies]
+dev = [
+  "black==24.8.0",
+  "ruff==0.5.6",
+  "pre-commit",
+  "pytest",
+  "pytest-cov",
+  "mypy",
+]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+# 필요 시 패키지 이름(예: "bimanual", "manipulation")으로 좁혀도 됨
+include = ["*"]
+exclude = ["IsaacLab*", "data*", "logs*", "outputs*"]
+
+# ---------------------
+# 코드 포맷터 / 린터 설정
+# ---------------------
+[tool.black]
+target-version = ["py38"]
+line-length = 120
+skip-magic-trailing-comma = false
+# 대형 서브모듈/벤더/산출물은 제외
+exclude = """
+(
+  /\\.git
+| /\\.mypy_cache
+| /\\.pytest_cache
+| /\\.ruff_cache
+| /build
+| /dist
+| /IsaacLab
+| /data
+| /logs
+| /outputs
+)
+"""
+
+[tool.ruff]
+target-version = "py38"
+line-length = 120
+indent-width = 4
+exclude = [
+  "IsaacLab",
+  "data",
+  "logs",
+  "outputs",
+  "build",
+  "dist",
+  ".git",
+  ".mypy_cache",
+  ".pytest_cache",
+  ".ruff_cache",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+
+[tool.ruff.lint]
+preview = true
+select = [
+  "F",     # pyflakes
+  "E",     # pycodestyle
+  "W",     # pycodestyle
+  "I",     # isort
+  "UP",    # pyupgrade
+  "ANN",   # flake8-annotations
+  "A",     # flake8-builtins
+  "C4",    # flake8-comprehensions
+  "G",     # flake8-logging-format
+  "Q",     # flake8-quotes
+  "SLF",   # flake8-self
+  "SIM",   # flake8-simplify
+  "TCH",   # flake8-tidy-imports
+  "PD",    # flake8-pandas
+  "RUF",   # ruff-specific-rules
+]
+ignore = [
+  "ANN002",  # missing-type-args
+  "ANN003",  # missing-type-kwargs
+  "ANN204",  # missing-return-type-special-method
+  "ANN401",  # any-type
+  "UP038",   # non-pep604-isinstance
+  "E402",    # module-import-not-at-top-of-file
+  "SIM108",  # if-else-block-instead-of-if-exp
+  "SIM118",  # use-dict-literal
+]
+
+[tool.ruff.lint.flake8-annotations]
+mypy-init-return = true
+
+# ---------------------
+# 테스트 설정(선택)
+# ---------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
