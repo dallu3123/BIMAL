@@ -6,5 +6,5 @@ data
 data_local
 .vscode
 _wandb
-
+assets/
 **/.DS_Store
