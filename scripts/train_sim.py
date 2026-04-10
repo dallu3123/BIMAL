@@ -1,16 +1,53 @@
 import argparse
 import os
+from datetime import datetime
 
 import torch
 import torch.optim as optim
+import wandb
 import yaml
 
 # LeRobotDataset import
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from model.policy import VITAPolicy
+
+
+def extract_batch(batch: dict, device: torch.device) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
+    """배치에서 이미지와 액션을 추출"""
+    images_dict = {}
+    for key, val in batch.items():
+        if key.startswith("observation.images."):
+            cam_name = key.split(".")[-1]
+            img_tensor = val.to(device, dtype=torch.float32)
+            if img_tensor.max() > 1.0:
+                img_tensor = img_tensor / 255.0
+            images_dict[cam_name] = img_tensor
+    actions = batch["action"].to(device)
+    return images_dict, actions
+
+
+@torch.no_grad()
+def validate(policy: VITAPolicy, val_loader: DataLoader, device: torch.device) -> dict[str, float]:
+    """Validation loop"""
+    policy.eval()
+    total_metrics: dict[str, float] = {}
+    num_batches = 0
+
+    for batch in val_loader:
+        images_dict, actions = extract_batch(batch, device)
+        _, metrics = policy.compute_loss(images_dict, actions)
+
+        for k, v in metrics.items():
+            total_metrics[k] = total_metrics.get(k, 0.0) + v
+        num_batches += 1
+
+    # Average
+    avg_metrics = {f"val/{k}": v / num_batches for k, v in total_metrics.items()}
+    policy.train()
+    return avg_metrics
 
 
 def train_sim(config: dict) -> None:
@@ -19,15 +56,32 @@ def train_sim(config: dict) -> None:
     )
     print(f"Using device: {device}")
 
+    # 0. Initialize W&B
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_name = config.get("wandb", {}).get("run_name", "run")
+    run_name = f"{run_name}_{timestamp}"
+    wandb.init(
+        project=config.get("wandb", {}).get("project", "BIMAL"),
+        name=run_name,
+        config=config,
+    )
+
     # 1. Initialize Policy
+    model_cfg = config["model"]
     policy = VITAPolicy(
         action_dim=config["task"]["action_dim"],
         seq_len=config["task"]["seq_len"],
         num_cameras=config["task"]["num_cameras"],
-        latent_dim=config["model"]["latent_dim"],
-        flow_hidden_dim=config["model"]["flow_hidden_dim"],
-        flow_num_layers=config["model"]["flow_num_layers"],
-        num_sampling_steps=config["model"]["num_sampling_steps"],
+        latent_dim=model_cfg["latent_dim"],
+        flow_hidden_dim=model_cfg["flow_hidden_dim"],
+        flow_num_layers=model_cfg["flow_num_layers"],
+        num_sampling_steps=model_cfg["num_sampling_steps"],
+        # VITA core parameters
+        decode_flow_latents=model_cfg.get("decode_flow_latents", True),
+        consistency_weight=model_cfg.get("consistency_weight", 1.0),
+        enc_contrastive_weight=model_cfg.get("enc_contrastive_weight", 0.0),
+        flow_contrastive_weight=model_cfg.get("flow_contrastive_weight", 0.0),
+        sigma=model_cfg.get("sigma", 0.0),
     ).to(device)
 
     optimizer = optim.AdamW(
@@ -39,51 +93,62 @@ def train_sim(config: dict) -> None:
     batch_size = config["train"]["batch_size"]
     epochs = config["train"]["epochs"]
     save_freq = config["train"]["save_freq"]
-    ckpt_dir = config["train"]["ckpt_dir"]
     seq_len = config["task"]["seq_len"]
 
-    # 2. Dataloader with LeRobotDataset
+    # wandb run name으로 체크포인트 폴더 생성
+    base_ckpt_dir = config["train"]["ckpt_dir"]
+    ckpt_dir = os.path.join(base_ckpt_dir, wandb.run.name)
+    os.makedirs(ckpt_dir, exist_ok=True)
+    print(f"Checkpoints will be saved to: {ckpt_dir}")
+
+    # 2. Dataloader with LeRobotDataset (Train / Val split)
     dataset_repo = config["task"].get("dataset_repo", "lerobot/aloha_sim_transfer_cube_human")
     print(f"Loading LeRobotDataset from Hugging Face: {dataset_repo}")
 
-    # 50Hz 시뮬레이션 환경 기준으로 seq_len 만큼 미래의 액션을 가져오기 위한 설정
     fps = 50
     action_deltas = [i / fps for i in range(seq_len)]
 
-    dataset = LeRobotDataset(
-        dataset_repo,
-        delta_timestamps={"action": action_deltas},
-    )
+    # 에피소드 단위 split
+    full_dataset = LeRobotDataset(dataset_repo, delta_timestamps={"action": action_deltas})
+    num_episodes = full_dataset.num_episodes
+    val_ratio = config["train"].get("val_ratio", 0.1)
+    num_val = max(1, int(num_episodes * val_ratio))
+    num_train = num_episodes - num_val
+    del full_dataset
 
-    dataloader = DataLoader(
-        dataset,
+    train_episodes = list(range(num_train))
+    val_episodes = list(range(num_train, num_episodes))
+
+    train_dataset = LeRobotDataset(dataset_repo, episodes=train_episodes, delta_timestamps={"action": action_deltas})
+    val_dataset = LeRobotDataset(dataset_repo, episodes=val_episodes, delta_timestamps={"action": action_deltas})
+
+    print(f"Train: {len(train_dataset)} frames ({num_train} episodes)")
+    print(f"Val:   {len(val_dataset)} frames ({num_val} episodes)")
+
+    train_loader = DataLoader(
+        train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=4,
+        num_workers=2,
+        pin_memory=True,
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=2,
         pin_memory=True,
     )
 
     # 3. Training Loop
+    best_val_loss = float("inf")
     policy.train()
     for epoch in range(epochs):
         epoch_loss = 0.0
 
-        with tqdm(dataloader, desc=f"Sim Epoch {epoch + 1}/{epochs}") as pbar:
+        with tqdm(train_loader, desc=f"Sim Epoch {epoch + 1}/{epochs}") as pbar:
             for _batch_idx, batch in enumerate(pbar):
-                # LeRobotDataset은 딕셔너리 형태로 데이터를 반환합니다.
-                # observation.images.top, observation.images.left_wrist 등의 키를 추출합니다.
-                images_dict = {}
-                for key, val in batch.items():
-                    if key.startswith("observation.images."):
-                        cam_name = key.split(".")[-1]
-                        img_tensor = val.to(device)
-                        # LeRobot의 이미지가 uint8일 경우 float(0~1)로 변환
-                        if img_tensor.dtype == torch.uint8:
-                            img_tensor = img_tensor.float() / 255.0
-                        images_dict[cam_name] = img_tensor
-
-                # 액션 추출 (B, seq_len, action_dim)
-                actions = batch["action"].to(device)
+                images_dict, actions = extract_batch(batch, device)
 
                 # Forward & Loss
                 optimizer.zero_grad()
@@ -94,22 +159,52 @@ def train_sim(config: dict) -> None:
                 optimizer.step()
 
                 epoch_loss += loss.item()
-                pbar.set_postfix(
-                    {
-                        "loss": f"{metrics['total_loss']:.4f}",
-                        "flow": f"{metrics['flow_loss']:.4f}",
-                        "vae": f"{metrics['vae_recon_loss']:.4f}",
-                    }
-                )
+                global_step = epoch * len(train_loader) + _batch_idx
+                wandb.log(metrics, step=global_step)
+                postfix = {
+                    "loss": f"{metrics['total_loss']:.4f}",
+                    "flow": f"{metrics['flow_loss']:.4f}",
+                    "vae": f"{metrics['vae_recon_loss']:.4f}",
+                }
+                if "consistency_loss" in metrics:
+                    postfix["consist"] = f"{metrics['consistency_loss']:.4f}"
+                if "enc_contrastive_loss" in metrics:
+                    postfix["enc_cl"] = f"{metrics['enc_contrastive_loss']:.4f}"
+                if "flow_contrastive_loss" in metrics:
+                    postfix["flow_cl"] = f"{metrics['flow_contrastive_loss']:.4f}"
+                pbar.set_postfix(postfix)
 
-        print(f"Epoch {epoch + 1} Average Loss: {epoch_loss / len(dataloader):.4f}")
+        avg_train_loss = epoch_loss / len(train_loader)
 
-        # Save checkpoint
+        # Validation
+        val_metrics = validate(policy, val_loader, device)
+        val_loss = val_metrics["val/total_loss"]
+        wandb.log({"train/epoch_avg_loss": avg_train_loss, "epoch": epoch + 1, **val_metrics})
+
+        print(
+            f"Epoch {epoch + 1} | "
+            f"Train Loss: {avg_train_loss:.4f} | "
+            f"Val Loss: {val_loss:.4f} | "
+            f"Val Flow: {val_metrics['val/flow_loss']:.4f} | "
+            f"Val VAE: {val_metrics['val/vae_recon_loss']:.4f}"
+        )
+
+        # Save best model
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            best_path = os.path.join(ckpt_dir, "policy_sim_best.pth")
+            torch.save(policy.state_dict(), best_path)
+            wandb.save(best_path)
+            print(f"  New best model saved (val_loss: {val_loss:.4f})")
+
+        # Save periodic checkpoint
         if (epoch + 1) % save_freq == 0:
-            os.makedirs(ckpt_dir, exist_ok=True)
             ckpt_path = os.path.join(ckpt_dir, f"policy_sim_ep{epoch + 1}.pth")
             torch.save(policy.state_dict(), ckpt_path)
-            print(f"Saved checkpoint to {ckpt_path}")
+            wandb.save(ckpt_path)
+            print(f"  Saved checkpoint to {ckpt_path}")
+
+    wandb.finish()
 
 
 if __name__ == "__main__":

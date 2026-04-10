@@ -3,13 +3,24 @@ task:
   data_dir: "./data/sim"
   action_dim: 14
   seq_len: 16
-  num_cameras: 3
+  num_cameras: 1
 
 model:
   latent_dim: 512
   flow_hidden_dim: 1024
   flow_num_layers: 6
-  num_sampling_steps: 10
+  num_sampling_steps: 8
+
+  # VITA core (latent & losses)
+  decode_flow_latents: true
+  consistency_weight: 1.0
+  enc_contrastive_weight: 0.0
+  flow_contrastive_weight: 0.0
+  sigma: 0.0
+
+wandb:
+  project: "BIMAL"
+  run_name: "sim_transfer_cube"
 
 train:
   epochs: 50
@@ -18,3 +29,4 @@ train:
   weight_decay: 1.0e-4
   save_freq: 10
   ckpt_dir: "./outputs/checkpoints/sim"
+  val_ratio: 0.1  # 마지막 10% 에피소드를 validation으로 사용

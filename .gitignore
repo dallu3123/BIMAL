@@ -9,3 +9,5 @@ _wandb
 assets/
 **/.DS_Store
 outputs/
+wandb/
+__pycache__/
