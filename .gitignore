@@ -11,3 +11,5 @@ assets/
 outputs/
 wandb/
 __pycache__/
+source/
+.claude/
