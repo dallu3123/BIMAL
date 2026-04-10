@@ -1,0 +1,20 @@
+task:
+  dataset_repo: "lerobot/aloha_sim_transfer_cube_human"
+  data_dir: "./data/sim"
+  action_dim: 14
+  seq_len: 16
+  num_cameras: 3
+
+model:
+  latent_dim: 512
+  flow_hidden_dim: 1024
+  flow_num_layers: 6
+  num_sampling_steps: 10
+
+train:
+  epochs: 50
+  batch_size: 32
+  lr: 1.0e-4
+  weight_decay: 1.0e-4
+  save_freq: 10
+  ckpt_dir: "./outputs/checkpoints/sim"

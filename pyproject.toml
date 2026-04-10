@@ -7,7 +7,7 @@ name = "piper-bimanual"
 version = "0.1.0"
 description = "Bimanual Manipulation Learning with Piper / ALOHA (RL & IL)"
 readme = "README.md"
-requires-python = ">=3.8,<3.9"
+requires-python = ">=3.11"
 license = { file = "LICENSE" }
 keywords = ["bimanual", "manipulation", "robotics", "imitation-learning", "reinforcement-learning", "aloha", "piper"]
 authors = [

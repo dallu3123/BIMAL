@@ -8,3 +8,4 @@ data_local
 _wandb
 assets/
 **/.DS_Store
+outputs/

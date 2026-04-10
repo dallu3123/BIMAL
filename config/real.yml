@@ -1,0 +1,20 @@
+task:
+  data_dir: "./data/real"
+  action_dim: 14
+  seq_len: 16
+  num_cameras: 3
+
+model:
+  latent_dim: 512
+  flow_hidden_dim: 1024
+  flow_num_layers: 6
+  num_sampling_steps: 10
+
+train:
+  pretrained_ckpt: "" # 시뮬레이션에서 사전 학습된 체크포인트 경로. 예: "./outputs/checkpoints/sim/policy_sim_ep50.pth"
+  epochs: 100
+  batch_size: 16
+  lr: 5.0e-5 # 파인튜닝을 위해 학습률을 더 작게 설정
+  weight_decay: 1.0e-4
+  save_freq: 5
+  ckpt_dir: "./outputs/checkpoints/real"
