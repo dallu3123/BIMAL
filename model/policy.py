@@ -83,6 +83,7 @@ class VITAPolicy(nn.Module):
             action_dim=action_dim,
             seq_len=seq_len,
             latent_dim=latent_dim,
+            hidden_dim=latent_dim * 4,  # 논문 기준: latent 32 -> hidden 128
         )
 
         # 3. Flow Network (Predicts velocity)
