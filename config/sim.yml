@@ -2,13 +2,13 @@ task:
   dataset_repo: "lerobot/aloha_sim_transfer_cube_human"
   data_dir: "./data/sim"
   action_dim: 14
-  seq_len: 16
+  seq_len: 8
   num_cameras: 1
 
 model:
-  latent_dim: 512
-  flow_hidden_dim: 1024
-  flow_num_layers: 6
+  latent_dim: 32
+  flow_hidden_dim: 512
+  flow_num_layers: 4
   num_sampling_steps: 8
 
   # VITA core (latent & losses)
@@ -20,13 +20,13 @@ model:
 
 wandb:
   project: "BIMAL"
-  run_name: "sim_transfer_cube"
+  run_name: "sim_transfer_cube_v2"
 
 train:
-  epochs: 50
+  epochs: 200
   batch_size: 32
   lr: 1.0e-4
   weight_decay: 1.0e-4
-  save_freq: 10
+  save_freq: 50
   ckpt_dir: "./outputs/checkpoints/sim"
-  val_ratio: 0.1  # 마지막 10% 에피소드를 validation으로 사용
+  val_ratio: 0.1

@@ -1,6 +1,10 @@
 import argparse
 import os
+import sys
 from datetime import datetime
+
+# 프로젝트 루트를 Python path에 추가
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import torch
 import torch.optim as optim
@@ -9,7 +13,7 @@ import yaml
 
 # LeRobotDataset import
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 
 from model.policy import VITAPolicy
@@ -108,19 +112,24 @@ def train_sim(config: dict) -> None:
     fps = 50
     action_deltas = [i / fps for i in range(seq_len)]
 
-    # 에피소드 단위 split
-    full_dataset = LeRobotDataset(dataset_repo, delta_timestamps={"action": action_deltas})
-    num_episodes = full_dataset.num_episodes
+    # 에피소드 단위 split (Subset 사용)
+    dataset = LeRobotDataset(dataset_repo, delta_timestamps={"action": action_deltas})
+    num_episodes = dataset.num_episodes
     val_ratio = config["train"].get("val_ratio", 0.1)
     num_val = max(1, int(num_episodes * val_ratio))
     num_train = num_episodes - num_val
-    del full_dataset
 
-    train_episodes = list(range(num_train))
-    val_episodes = list(range(num_train, num_episodes))
+    train_indices = []
+    val_indices = []
+    for i in range(len(dataset)):
+        ep = dataset.hf_dataset[i]["episode_index"]
+        if ep < num_train:
+            train_indices.append(i)
+        else:
+            val_indices.append(i)
 
-    train_dataset = LeRobotDataset(dataset_repo, episodes=train_episodes, delta_timestamps={"action": action_deltas})
-    val_dataset = LeRobotDataset(dataset_repo, episodes=val_episodes, delta_timestamps={"action": action_deltas})
+    train_dataset = Subset(dataset, train_indices)
+    val_dataset = Subset(dataset, val_indices)
 
     print(f"Train: {len(train_dataset)} frames ({num_train} episodes)")
     print(f"Val:   {len(val_dataset)} frames ({num_val} episodes)")
