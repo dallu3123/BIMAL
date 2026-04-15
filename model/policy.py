@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from model.vita import SimpleFlowNet
-from model.vision import ResNetObserver, MultiCameraObserver
+from model.vision import ResNetObserver, DINOv2Observer, MultiCameraObserver
 from model.action_vae import MLPActionVAE
 
 
@@ -59,6 +59,9 @@ class VITAPolicy(nn.Module):
         enc_contrastive_weight: float = 0.0,
         flow_contrastive_weight: float = 0.0,
         sigma: float = 0.0,
+        # Vision encoder
+        vision_encoder: str = "resnet18",  # "resnet18" / "resnet34" / "resnet50" / "dinov2_vits14" / "dinov2_vitb14" / ...
+        vision_freeze: bool = True,         # DINOv2 사용 시 백본 freeze 여부
     ) -> None:
         super().__init__()
         self.latent_dim = latent_dim
@@ -71,9 +74,17 @@ class VITAPolicy(nn.Module):
         self.flow_contrastive_weight = flow_contrastive_weight
         self.sigma = sigma
 
-        # 1. Vision Encoder (ResNet18 baseline for lightweight training)
+        # 1. Vision Encoder (config 선택: resnet18/34/50 또는 dinov2_vits14/vitb14/vitl14/vitg14)
+        if vision_encoder.startswith("resnet"):
+            encoder = ResNetObserver(resnet_type=vision_encoder, out_dim=latent_dim)
+        elif vision_encoder.startswith("dinov2_"):
+            model_size = vision_encoder.replace("dinov2_", "")
+            encoder = DINOv2Observer(model_size=model_size, freeze=vision_freeze, out_dim=latent_dim)
+        else:
+            raise ValueError(f"Unsupported vision_encoder: {vision_encoder}")
+
         self.vision_encoder = MultiCameraObserver(
-            encoder=ResNetObserver(resnet_type="resnet18", out_dim=latent_dim),
+            encoder=encoder,
             num_cameras=num_cameras,
             feature_dim=latent_dim,
         )

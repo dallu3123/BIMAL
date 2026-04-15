@@ -1,20 +1,46 @@
 task:
-  data_dir: "./data/real"
+  data_dir: "./source/lerobot_bearing4_v3"
   action_dim: 14
   seq_len: 16
   num_cameras: 3
+  image_size: 224
+  camera_keys:
+    - "observation.images.cam_high"
+    - "observation.images.cam_left_wrist"
+    - "observation.images.cam_right_wrist"
+  use_cache: true  # scripts/extract_frames.py 먼저 실행 필요
+  # cache_dir: "./source/lerobot_bearing4_v3/cache"  # 기본은 <data_dir>/cache
 
 model:
   latent_dim: 512
   flow_hidden_dim: 1024
   flow_num_layers: 6
-  num_sampling_steps: 10
+  num_sampling_steps: 8
+  vision_encoder: "dinov2_vits14"  # resnet18 / resnet34 / resnet50 / dinov2_vits14 / dinov2_vitb14 / dinov2_vitl14
+  vision_freeze: true              # DINOv2 백본 freeze (강력 권장, 속도+안정성)
+
+wandb:
+  enabled: true
+  project: "BIMAL"
+  run_name: "real_bearing4_v3"
+  mode: "online"  # "offline" 또는 "disabled" 가능
+  # entity: "your-team"
 
 train:
   pretrained_ckpt: "" # 시뮬레이션에서 사전 학습된 체크포인트 경로. 예: "./outputs/checkpoints/sim/policy_sim_ep50.pth"
-  epochs: 100
-  batch_size: 16
-  lr: 5.0e-5 # 파인튜닝을 위해 학습률을 더 작게 설정
+  epochs: 3000
+  batch_size: 384
+  lr: 5.5e-5 # linear scaling: batch 128 @ 5e-5 → batch 384 @ 1.5e-4
   weight_decay: 1.0e-4
-  save_freq: 5
+  save_freq: 50
   ckpt_dir: "./outputs/checkpoints/real"
+  num_workers: 6
+  prefetch_factor: 2
+  val_ratio: 0.1       # 전체 에피소드 중 val 비율
+  split_seed: 42       # train/val 에피소드 랜덤 split 시드
+  amp:
+    enabled: true   # true/false 로 끄고 키기
+    dtype: "bf16"   # "bf16" (권장, RTX 30xx+) 또는 "fp16"
+  compile:
+    enabled: false        # torch.compile — AMP와 함께 쓰면 "Unknown device: -1" 버그 발생 가능
+    mode: "reduce-overhead"  # "default" / "reduce-overhead" / "max-autotune"
